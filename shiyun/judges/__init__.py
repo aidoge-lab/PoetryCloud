@@ -65,29 +65,34 @@ def _noul(ans: dict) -> float:
 
 
 class LayaJudge:
-    """laya：一次前向得到 noul（是好诗的概率）。中文自动路由到 laya-multilingual。"""
+    """laya：一次前向得到 noul（是好诗的概率）。中文自动路由到 laya-multilingual。
 
-    def __init__(self, base_url: str = "", model: str = "", api_key: str | None = None, concurrency: int = 4):
+    model：留空用官方 laya-multilingual；也可以是本地微调后的检查点目录。
+    device：mps / cuda / cpu；留空时 Apple 芯片用 mps，有 NVIDIA 显卡用 cuda。
+    """
+
+    def __init__(self, base_url: str = "", model: str = "", api_key: str | None = None,
+                 concurrency: int = 4, device: str = ""):
         self.base_url, self.model, self.api_key = base_url.rstrip("/"), model, api_key
-        self.id = f"laya:{model or 'auto'}:p{PROMPT_VERSION}"
+        self.id = f"laya:{_model_tag(model)}:p{PROMPT_VERSION}"
         self._pool = ThreadPoolExecutor(concurrency)
         self._router = None
+        self.device = ""
         if not base_url:
             try:
                 from laya import Router
             except ImportError as e:
                 raise SystemExit("未安装 laya：pip install laya，或用 --base-url 指向 laya-serve") from e
-            self._router = Router()
+            self.device = device or _default_device()
+            models = {"multilingual": model} if model else None
+            self._router = Router(models=models, device=self.device)
 
     def _batch(self, texts: list[str], kind: str) -> list[float]:
         states = [{"body": _state(t, kind)} for t in texts]
         questions = {"good": _noul_question(kind)}
         if self._router is not None:
             # Router.predict_batch(requests)：每个 request 自带 state 与 questions，同 schema 的会共享前向
-            reqs = [{"state": st, "questions": questions} for st in states]
-            if self.model:
-                for r in reqs:
-                    r["model"] = self.model
+            reqs = [{"state": st, "questions": questions, "model": "multilingual"} for st in states]
             return [_noul(r) for r in self._router.predict_batch(reqs, batch_size=64, sort_by_length=True)]
         payload = {"states": states, "questions": questions}
         if self.model:
@@ -100,6 +105,28 @@ class LayaJudge:
             return self._batch(texts, kind)
         chunks = [texts[k : k + 64] for k in range(0, len(texts), 64)]  # laya-serve 单批上限 64
         return [s for part in self._pool.map(lambda c: self._batch(c, kind), chunks) for s in part]
+
+
+def _default_device() -> str:
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def _model_tag(model: str) -> str:
+    """判别器 id 里的模型名：本地检查点用目录名加权重哈希前 8 位，保证不同权重 id 不同。"""
+    from pathlib import Path
+
+    p = Path(model) if model else None
+    if p and p.is_dir():
+        weights = sorted(p.glob("*.safetensors"))
+        h = hashlib.sha256(b"".join(w.read_bytes()[:1 << 20] + str(w.stat().st_size).encode() for w in weights))
+        return f"{p.name}@{h.hexdigest()[:8]}"
+    return model or "multilingual"
 
 
 class JevJudge:
@@ -167,9 +194,9 @@ class NgramJudge:
 
 
 def make_judge(name: str, space=None, base_url: str = "", model: str = "",
-               api_key: str | None = None, concurrency: int = 8) -> Judge:
+               api_key: str | None = None, concurrency: int = 8, device: str = "") -> Judge:
     if name == "laya":
-        return LayaJudge(base_url, model, api_key, concurrency)
+        return LayaJudge(base_url, model, api_key, concurrency, device)
     if name == "jev":
         return JevJudge(base_url or "http://127.0.0.1:8090", model, api_key, concurrency=concurrency)
     if name == "openai":

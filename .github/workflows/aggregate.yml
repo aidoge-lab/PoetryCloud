@@ -1,11 +1,16 @@
 name: 汇总
 on:
+  # 参与者把认领 PR 标为就绪时立即处理；pull_request_target 在上游仓库的代码上运行，
+  # 不检出、不执行 PR 的代码，只通过 API 读取 PR 里的结果文件做校验。
+  pull_request_target:
+    types: [ready_for_review]
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
   issues: write
   pages: write
   id-token: write
@@ -17,25 +22,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: 准备标签
         env: { GH_TOKEN: "${{ github.token }}" }
-        run: |
-          gh label create merged   --color 2da44e --force || true
-          gh label create rejected --color cf222e --force || true
-      - name: 校验并汇总结果、收集投票
+        run: gh label create rejected --color cf222e --force || true
+      - name: 校验并合并结果 PR、关闭过期认领、收集评审票
         env: { GH_TOKEN: "${{ github.token }}" }
         run: python -m shiyun aggregate
-      - name: 生成网页数据
-        env: { GH_TOKEN: "${{ github.token }}" }
-        run: python -m shiyun site
+      - name: 同步合并进来的结果，重算进度并生成网页数据
+        run: |
+          git pull --ff-only origin main
+          python -m shiyun progress
+          python -m shiyun site
       - name: 提交
         run: |
           git config user.name "shiyun-bot"
           git config user.email "shiyun-bot@users.noreply.github.com"
-          git add data site
+          git add data/progress.json data/votes.json data/calibration.json site/data.json
           git diff --cached --quiet || git commit -m "汇总：$(date -u +%F' '%H:%M) UTC"
           git push
       - uses: actions/upload-pages-artifact@v3

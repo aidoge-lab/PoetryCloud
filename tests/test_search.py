@@ -25,7 +25,7 @@ def space(tmp_path_factory) -> Space:
             uni[c] = uni.get(c, 0) + 1
         for i in range(4):
             bi[ln[i : i + 2]] = bi.get(ln[i : i + 2], 0) + 1
-    (d / "chars.tsv").write_text("".join(f"{c}\t{t}\t{r}\t{uni.get(c, 1)}\n" for c, t, r in CHARS), "utf-8")
+    (d / "chars.tsv").write_text("".join(f"{c}\t{t}\t{r}\t{t}\t{r}\t{uni.get(c, 1)}\n" for c, t, r in CHARS), "utf-8")
     with gzip.open(d / "ngram.tsv.gz", "wt", encoding="utf-8") as f:
         for c, _, _ in CHARS:
             f.write(f"{c}\t{uni.get(c, 1)}\n")
@@ -36,7 +36,7 @@ def space(tmp_path_factory) -> Space:
                 f.write(f"@{k}{c}\t1\n")
     m = {"search": {"lambda": 0.9, "caesura": True, "lm_floor": [-3.0, -4.5, -6.5, -8.5, -10.5]}}
     (d / "manifest.json").write_text(json.dumps(m), "utf-8")
-    return Space(d)
+    return Space("psy", d)
 
 
 def brute(space: Space) -> set[str]:

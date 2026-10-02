@@ -1,6 +1,6 @@
 """人工校准：用投票把判别器分数定标（Platt scaling），并给出综合排名。
 
-投票：好=1，一般=0.5，不行=0（软标签）。
+投票：只计评审团（data/reviewers.json）成员的票。好=1，一般=0.5，不行=0（软标签）。
 定标：P(人觉得好 | 判别分 s) = σ(a·s + b)，用全部有票的诗拟合 a、b。
 排名：把定标后的概率当作先验（权重 PRIOR 票），与真实投票做贝叶斯平均。
 """
@@ -53,18 +53,25 @@ def rank(poems: list[dict], votes: dict[str, dict[str, int]], cal: dict) -> list
     return sorted(out, key=lambda p: -p["final"])
 
 
-def build_site(data_dir: Path, site_dir: Path, repo: str, poems: list[dict], lines: list[dict]) -> None:
+def build_site(data_dir: Path, site_dir: Path, repo: str, by_meter: dict[str, dict]) -> None:
+    """by_meter: {空间: {"name", "poems", "lines", "rediscovered"}}。投票只含评审团的票。"""
     votes_path = data_dir / "votes.json"
     votes = json.loads(votes_path.read_text("utf-8")) if votes_path.exists() else {}
-    cal = calibrate(poems, votes)
-    (data_dir / "calibration.json").write_text(json.dumps(cal, indent=2) + "\n", "utf-8")
+    reviewers_path = data_dir / "reviewers.json"
+    panel = json.loads(reviewers_path.read_text("utf-8"))["reviewers"] if reviewers_path.exists() else []
     progress_path = data_dir / "progress.json"
+    spaces, cals = {}, {}
+    for meter, d in by_meter.items():
+        cal = calibrate(d["poems"], votes)
+        cals[meter] = cal
+        spaces[meter] = {"name": d["name"], "calibration": cal, "poems": rank(d["poems"], votes, cal)[:500],
+                         "lines": d["lines"][:300], "rediscovered": d["rediscovered"][:300]}
+    (data_dir / "calibration.json").write_text(json.dumps(cals, indent=2) + "\n", "utf-8")
     data = {
         "repo": repo,
+        "reviewers": panel,
         "progress": json.loads(progress_path.read_text("utf-8")) if progress_path.exists() else None,
-        "calibration": cal,
-        "poems": rank(poems, votes, cal)[:500],
-        "lines": lines[:300],
+        "spaces": spaces,
     }
     site_dir.mkdir(exist_ok=True)
     (site_dir / "data.json").write_text(json.dumps(data, ensure_ascii=False), "utf-8")

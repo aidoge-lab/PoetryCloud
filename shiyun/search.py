@@ -32,6 +32,8 @@ from .meter import line_type
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 RULES = ("lm", "dup", "tone")
+# 两套格律体系各是一个独立的搜索空间：平仄、韵部取 chars.tsv 的不同列
+METERS = {"xin": ("中华新韵", 1, 2), "psy": ("平水韵", 3, 4)}
 
 # 所有合律的五字平仄模式，及其句式
 PATTERNS = [("".join(p), line_type("".join(p))) for p in product("PZ", repeat=5)]
@@ -78,7 +80,11 @@ class Ledger:
 
 
 class Space:
-    def __init__(self, data_dir: Path = DATA, manifest: dict | None = None):
+    def __init__(self, meter: str = "psy", data_dir: Path = DATA, manifest: dict | None = None):
+        if meter not in METERS:
+            raise ValueError(f"未知格律体系 {meter}，可选：{', '.join(METERS)}")
+        self.meter = meter
+        self.meter_name, t_col, r_col = METERS[meter]
         self.data_dir = data_dir
         self.manifest = manifest or load_manifest(data_dir)
         p = self.manifest["search"]
@@ -88,10 +94,10 @@ class Space:
         raw = (data_dir / "chars.tsv").read_bytes()
         self.chars, self.tones, self.rhymes = [], [], []
         for row in raw.decode("utf-8").splitlines():
-            c, t, r, _ = row.split("\t")
-            self.chars.append(c)
-            self.tones.append(t)
-            self.rhymes.append(r)
+            f = row.split("\t")
+            self.chars.append(f[0])
+            self.tones.append(f[t_col])
+            self.rhymes.append(f[r_col])
         self.n = len(self.chars)
         self.index = {c: i for i, c in enumerate(self.chars)}
 
@@ -136,7 +142,7 @@ class Space:
             for d in range(5)
         ]
 
-        h = hashlib.sha256(raw + ngram_raw + json.dumps(p, sort_keys=True).encode())
+        h = hashlib.sha256(raw + ngram_raw + json.dumps(p, sort_keys=True).encode() + meter.encode())
         self.sha256 = h.hexdigest()
         self._prefixes: list[tuple[int, int]] | None = None
 
@@ -267,17 +273,21 @@ class Space:
 
 
 # ---------- 分片表 ----------
-def load_shards(data_dir: Path = DATA) -> list[tuple[int, int]]:
-    rows = (data_dir / "shards.tsv").read_text("utf-8").splitlines()
+def shards_path(data_dir: Path, meter: str) -> Path:
+    return data_dir / f"shards-{meter}.tsv"
+
+
+def load_shards(data_dir: Path, meter: str) -> list[tuple[int, int]]:
+    rows = shards_path(data_dir, meter).read_text("utf-8").splitlines()
     return [(int(s), int(e)) for _, s, e, *_ in (r.split("\t") for r in rows)]
 
 
 _W: Space | None = None
 
 
-def _count_init(data_dir: Path) -> None:
+def _count_init(meter: str, data_dir: Path) -> None:
     global _W
-    _W = Space(data_dir)
+    _W = Space(meter, data_dir)
 
 
 def _count(rng: tuple[int, int]) -> tuple[list[int], dict]:
@@ -297,10 +307,10 @@ def build_shards(space: Space, target_leaves: int, total: Ledger, workers: int =
     if workers > 1:
         from multiprocessing import get_context
 
-        with get_context("spawn").Pool(workers, _count_init, (space.data_dir,)) as pool:
+        with get_context("spawn").Pool(workers, _count_init, (space.meter, space.data_dir)) as pool:
             parts = pool.map(_count, chunks, chunksize=1)
     else:
-        _count_init(space.data_dir)
+        _count_init(space.meter, space.data_dir)
         parts = [_count(c) for c in chunks]
     counts = [n for cs, _ in parts for n in cs]
     for _, led in parts:
