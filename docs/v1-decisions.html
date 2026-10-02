@@ -1,0 +1,429 @@
+<title>诗云 v1 架构与决策</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 布局：单栏文档（约 68 字宽），先一页纸讲清现状，再逐条决策；底部常驻进度条，末尾生成决策单 */
+:root {
+  --paper: #f3f5f2;      /* 冷调宣纸 */
+  --sheet: #fbfcfa;      /* 卡面 */
+  --ink: #1b2225;        /* 墨 */
+  --muted: #5a666c;      /* 淡墨 */
+  --rule: #d3dad6;       /* 界行 */
+  --azurite: #2c5a76;    /* 石青：唯一强调色 */
+  --azurite-wash: #e2ebef;
+  --ochre: #9a4a26;      /* 赭石：只用于阻塞项 */
+  --ochre-wash: #f5e7df;
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #111517; --sheet: #182024; --ink: #e2e7e6; --muted: #93a0a6; --rule: #2b3439;
+    --azurite: #8ab6cf; --azurite-wash: #1d2d36; --ochre: #e0926b; --ochre-wash: #33221a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #111517; --sheet: #182024; --ink: #e2e7e6; --muted: #93a0a6; --rule: #2b3439;
+  --azurite: #8ab6cf; --azurite-wash: #1d2d36; --ochre: #e0926b; --ochre-wash: #33221a;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 400 var(--step-0)/1.75 var(--font-body); }
+.wrap { max-width: 46rem; margin: 0 auto; padding-inline: 20px; padding-block: 48px 120px; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.3; }
+h1 { font-size: var(--step-3); font-weight: 900; letter-spacing: 0.04em; }
+h2 { font-size: var(--step-2); }
+h3 { font-size: var(--step-1); }
+p { margin: 0; }
+section { display: grid; gap: 20px; }
+.eyebrow { font: 500 var(--step--1)/1.4 var(--font-mono); letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
+.lede { color: var(--muted); max-width: 40rem; }
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+code { font-family: var(--font-mono); font-size: 0.9em; background: var(--azurite-wash); padding: 0 4px; border-radius: 3px; }
+
+/* 页首 */
+header { display: grid; gap: 14px; border-bottom: 1px solid var(--rule); padding-bottom: 28px; }
+.meter { font-family: var(--font-display); color: var(--muted); letter-spacing: 0.3em; font-size: var(--step-1); }
+.meter b { color: var(--azurite); font-weight: 600; }
+
+/* 账本等式 */
+.ledger { font: 400 var(--step-0)/1.9 var(--font-mono); overflow-x: auto; padding: 16px 18px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; white-space: pre; }
+
+/* 漏斗：对数刻度 */
+.funnel { display: grid; gap: 10px; }
+.frow { display: grid; grid-template-columns: 9.5rem 1fr 6.5rem; gap: 12px; align-items: center; }
+.frow .lab { font-size: var(--step--1); color: var(--muted); }
+.frow .bar { height: 14px; background: var(--rule); border-radius: 2px; position: relative; }
+.frow .bar i { position: absolute; inset: 0 auto 0 0; background: var(--azurite); border-radius: 2px; }
+.frow .val { font: 500 var(--step--1) var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.axis { display: grid; grid-template-columns: 9.5rem 1fr 6.5rem; gap: 12px; }
+.axis div { display: flex; justify-content: space-between; font: 400 11px var(--font-mono); color: var(--muted); }
+
+/* 分层表 */
+.layers { width: 100%; border-collapse: collapse; font-size: var(--step--1); }
+.layers th, .layers td { text-align: left; vertical-align: top; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); }
+.layers th { font-weight: 500; color: var(--muted); white-space: nowrap; }
+.layers td:first-child { font-family: var(--font-display); font-weight: 600; font-size: var(--step-0); white-space: nowrap; }
+.layers .num { white-space: nowrap; }
+.scroll { overflow-x: auto; }
+
+/* 阻塞项 */
+.blockers { display: grid; gap: 12px; }
+.blocker { border-left: 3px solid var(--ochre); background: var(--ochre-wash); padding: 12px 16px; display: grid; gap: 4px; }
+.blocker b { color: var(--ochre); font-weight: 700; }
+
+/* 决策 */
+.order { display: grid; gap: 8px; font-size: var(--step--1); color: var(--muted); }
+.group-title { font: 500 var(--step--1)/1.4 var(--font-mono); letter-spacing: 0.08em; color: var(--azurite); border-top: 1px solid var(--rule); padding-top: 18px; }
+.decision { display: grid; gap: 14px; padding-block: 8px 20px; }
+.dhead { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.did { font: 500 var(--step-0) var(--font-mono); color: var(--azurite); }
+.chip { font: 500 11px/1 var(--font-mono); letter-spacing: 0.06em; padding: 4px 7px; border-radius: 3px; border: 1px solid var(--rule); color: var(--muted); }
+.chip.space { border-color: var(--ochre); color: var(--ochre); }
+.chip.done { background: var(--azurite); border-color: var(--azurite); color: var(--sheet); }
+.why { color: var(--muted); }
+.opts { display: grid; gap: 8px; }
+.opt { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 12px 14px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; cursor: pointer; }
+.opt:hover { border-color: var(--azurite); }
+.opt input { margin: 4px 0 0; accent-color: var(--azurite); width: 16px; height: 16px; }
+.opt:has(input:checked) { border-color: var(--azurite); background: var(--azurite-wash); }
+.opt:has(input:focus-visible) { outline: 2px solid var(--azurite); outline-offset: 2px; }
+.otitle { font-weight: 700; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.otitle .k { font-family: var(--font-mono); color: var(--azurite); }
+.rec { font: 500 11px/1 var(--font-body); color: var(--azurite); border: 1px solid var(--azurite); border-radius: 3px; padding: 3px 6px; }
+.odesc { font-size: var(--step--1); color: var(--muted); }
+.reco { font-size: var(--step--1); border-left: 2px solid var(--azurite); padding-left: 12px; }
+.reco b { color: var(--azurite); }
+.note { width: 100%; min-height: 2.6rem; resize: vertical; font: inherit; font-size: var(--step--1); color: var(--ink); background: var(--sheet); border: 1px dashed var(--rule); border-radius: 4px; padding: 8px 10px; }
+.note:focus { outline: 2px solid var(--azurite); outline-offset: 1px; border-style: solid; }
+
+/* 默认值 */
+.defaults { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 10px 24px; font-size: var(--step--1); }
+.defaults div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dotted var(--rule); padding-bottom: 6px; }
+.defaults span:first-child { color: var(--muted); }
+
+/* 决策单 */
+#sheet { width: 100%; min-height: 18rem; font: 400 var(--step--1)/1.7 var(--font-mono); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; resize: vertical; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+button { font: 500 var(--step--1) var(--font-body); border-radius: 4px; padding: 8px 16px; cursor: pointer; border: 1px solid var(--azurite); background: var(--azurite); color: var(--sheet); }
+button.ghost { background: transparent; color: var(--azurite); }
+button:focus-visible { outline: 2px solid var(--azurite); outline-offset: 2px; }
+#copied { font-size: var(--step--1); color: var(--muted); }
+
+/* 底部进度 */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; background: var(--sheet); border-top: 1px solid var(--rule); padding: 10px 20px calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; gap: 16px; align-items: center; font-size: var(--step--1); z-index: 5; }
+.dots { display: flex; gap: 5px; }
+.dots a { width: 22px; height: 22px; border-radius: 3px; border: 1px solid var(--rule); display: grid; place-items: center; font: 500 10px var(--font-mono); color: var(--muted); text-decoration: none; }
+.dots a.on { background: var(--azurite); border-color: var(--azurite); color: var(--sheet); }
+.dock a.go { color: var(--azurite); font-weight: 500; }
+
+@media (max-width: 560px) {
+  .frow, .axis { grid-template-columns: 6.5rem 1fr 5rem; }
+  .dots a { width: 18px; height: 18px; }
+  .dock { gap: 10px; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">aidoge-lab/PoetryCloud · 提交 f86cdec · 2026-10-02</div>
+    <h1>诗云 v1 架构与决策</h1>
+    <p class="meter">仄仄平平仄　<b>平平仄仄平</b>　平平平仄仄　仄仄仄平平</p>
+    <p class="lede">诗云逐字穷举五言句，用判别模型筛选，再在好句里穷举组成五言绝句，最后由人投票校准。第一部分是目前已经实现的架构，第二部分是开跑前需要你拍板的 10 件事。每项都给了我的建议；选完后到页面底部生成决策单，复制发回给我即可。</p>
+  </header>
+
+  <section id="arch">
+    <div class="eyebrow">一 · 现状</div>
+    <h2>五层流水线</h2>
+    <div class="scroll">
+      <table class="layers">
+        <thead><tr><th>层</th><th>做什么</th><th>现在的实现</th><th>关键数字</th></tr></thead>
+        <tbody>
+          <tr><td>搜索</td><td>逐字穷举一句五言，按规则成片剪枝，每一刀都记账</td><td><code>shiyun/search.py</code>，分支定界；规则为语言模型下界、重字、平仄</td><td class="num">4000⁵ → 5.03 亿句</td></tr>
+          <tr><td>判别</td><td>给每句打“是好诗”的概率，不生成文字</td><td><code>shiyun/judges</code>：laya（默认）、jev、openai、ngram</td><td class="num">laya 7–25 ms/句</td></tr>
+          <tr><td>协作</td><td>大家认领分片、本地计算、自动提交</td><td>GitHub Issue 认领与提交；Actions 每小时复算校验后并入</td><td class="num">742 片，每片 50–70 万句</td></tr>
+          <tr><td>组诗</td><td>在好句池里按格律穷举成绝句</td><td><code>shiyun/assemble.py</code>：句式、粘对、押韵、不重字，再判对句和整首</td><td class="num">4 种格式</td></tr>
+          <tr><td>校准</td><td>人工投票，修正机器的口味</td><td>静态网页加预填的 <code>[vote]</code> issue；Platt 定标后做贝叶斯平均</td><td class="num">先验权重 3 票</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>穷举账本</h3>
+    <p>剪掉第 d 个字上的一个分支，就等于一次性判掉它下面 4000<sup>4−d</sup> 句。所有剪枝都记账，下面这个等式按精确整数成立，汇总器对每个分片都会复算一遍：</p>
+    <div class="ledger">Σ 进入判别的句数  +  Σ 第 d 位剪枝数 × 4000^(4−d)  =  4000⁵  =  1,024,000,000,000,000,000</div>
+
+    <h3>每一层还剩多少（对数刻度）</h3>
+    <div class="funnel" id="funnel"></div>
+
+    <h3>开跑前的两个阻塞项</h3>
+    <div class="blockers">
+      <div class="blocker"><b>判别器还不会判诗</b><span>零样本 laya 区分唐诗原句和“打乱字序的同一句”，AUC 只有 0.44–0.54，5 种问法都试过了（0.5 就是抛硬币）。“月光床前明”得 0.85 分，“白日依山尽”只有 0.49。必须先微调。对应 D1、D2。</span></div>
+      <div class="blocker"><b>剪枝召回率只有约 5%</b><span>在 2 万句唐诗原句上测，只有 4.9% 能活到判别器面前，“床前明月光”在第 3 个字就被剪掉了。另外新韵把入声字判成平声，“千山鸟飞绝”被判为不合律。对应 D3、D4。</span></div>
+    </div>
+  </section>
+
+  <section id="decide">
+    <div class="eyebrow">二 · 待决策</div>
+    <h2>10 件需要你拍板的事</h2>
+    <div class="order">
+      <p>标着 <span class="chip space">改变搜索空间</span> 的三项（D3、D4、D5）会改变搜索空间的哈希。它们定下来后，我会重建字表和分片表（8 核约 4 分钟），然后冻结 v1；之后再改就是 v2，v1 的结果不能混用。D1、D2 决定什么时候能开跑。</p>
+    </div>
+    <div id="decisions"></div>
+  </section>
+
+  <section id="defaults">
+    <div class="eyebrow">三 · 默认值</div>
+    <h2>暂不需要决策的参数</h2>
+    <p class="lede">这些都可以随时调整，不影响搜索空间。有意见直接写在决策单末尾。</p>
+    <div class="defaults">
+      <div><span>每片目标句数</span><span class="num">50 万（实际 50–70 万）</span></div>
+      <div><span>认领过期</span><span class="num">7 天</span></div>
+      <div><span>提交阈值</span><span class="num">判别分 ≥ 0.5</span></div>
+      <div><span>每片候选上限</span><span class="num">3000 句</span></div>
+      <div><span>汇总频率</span><span class="num">每小时</span></div>
+      <div><span>字表</span><span class="num">4000 字，覆盖 99.1% 字次</span></div>
+    </div>
+  </section>
+
+  <section id="out">
+    <div class="eyebrow">四 · 决策单</div>
+    <h2>生成并发给我</h2>
+    <p class="lede">选择和备注都保存在这个浏览器里，刷新也不会丢。没选的项会列在“待定”里。</p>
+    <textarea id="sheet" readonly aria-label="决策单"></textarea>
+    <div class="actions">
+      <button id="copy" type="button">复制决策单</button>
+      <button id="useRec" class="ghost" type="button">未选的项按建议填</button>
+      <button id="reset" class="ghost" type="button">清空</button>
+      <span id="copied" role="status"></span>
+    </div>
+  </section>
+</div>
+
+<nav class="dock" aria-label="决策进度">
+  <span id="count">已决定 0/10</span>
+  <div class="dots" id="dots"></div>
+  <a class="go" href="#out">决策单 ↓</a>
+</nav>
+
+<script>
+const FUNNEL = [
+  ["全空间", 1.024e18, "1.02×10¹⁸"],
+  ["进入判别", 502753881, "5.03×10⁸"],
+  ["候选好句（上限）", 742 * 3000, "2.23×10⁶"],
+  ["送整首判别（上限）", 4 * 300, "1,200"],
+];
+
+const GROUPS = { judge: "判别器", space: "搜索空间", collab: "协作与可信", later: "后续阶段" };
+
+const D = [
+  { id: "D1", group: "judge", title: "判别器用什么模型",
+    why: "零样本 laya 速度够快，但判不了诗。全量 5 亿句只有 laya 这种单次前向的小模型跑得动；会读古诗的大模型慢得多。",
+    opts: [
+      ["A", "微调 laya", "laya-multilingual 只有 3.2 亿参数，全量判一遍在 T4 上约 39 GPU·天。能不能学会判诗，要训完看 AUC。"],
+      ["B", "生成式大模型取“是/否”概率", "比如 7B 级别的 Qwen，对古诗的理解强得多。每句成本估计高一个数量级以上（未实测），全量跑不动，只能配合更狠的剪枝。"],
+      ["C", "级联：laya 粗筛，大模型复判", "微调后的 laya 判全部句子，只把前 1–5% 交给大模型复判。成本约等于 A 再加一点 B，但要维护两个模型。"],
+    ],
+    rec: "C", recWhy: "先把 A 做出来。laya 的前 1% 约 500 万句，交给大模型复判的量还算可控；具体取多少，等测出大模型的速度再定。" },
+
+  { id: "D2", group: "judge", title: "判别器学什么样的“好诗”",
+    why: "微调需要训练数据。数据决定判别器学到的口味。",
+    opts: [
+      ["A", "像唐诗", "正样本是唐诗原句；负样本是打乱字序的句子、搜索叶子、改了一两个字的近似句。数据现成，量大。学到的是“像古人写的”，这不等于“好”。"],
+      ["B", "大模型打分蒸馏", "用强模型给几万句打分，作为 laya 微调的教师概率（laya 的微调格式本来就接收概率）。能学到好坏，也会继承那个模型的口味。"],
+      ["C", "人工标注起步", "最贴近人的判断。需要几千条标注的人力。"],
+    ],
+    rec: "A", recWhy: "先用 A 训出能区分通顺与否的基线，再叠加 B 学好坏；人工投票（D10）放在最后校准。" },
+
+  { id: "D3", group: "space", space: true, title: "剪枝剪多狠",
+    why: "召回率指唐诗原句能活到判别器面前的比例。剪得越松，召回率越高，要判的句子也越多。句数是抽样估计，误差约 ±50%；GPU·天按 T4 上 laya 每秒约 150 句计算。",
+    opts: [
+      ["A", "维持现状 τ = −4.2", "5.03 亿句（精确值），召回率 4.9%，约 39 GPU·天。"],
+      ["B", "放宽一档 τ = −4.4", "约 6–9 亿句，召回率 7.4%，约 45–70 GPU·天。"],
+      ["C", "再放宽 τ = −4.6", "约 17–25 亿句，召回率 10.5%，约 130–190 GPU·天。"],
+      ["D", "先做神经网络前缀打分器", "同样的句数下召回率可能翻几倍。代价是推迟开跑，而且打分必须在不同机器上逐位一致，需要做整数化。"],
+    ],
+    rec: "B", recWhy: "算力多约一半，召回率提高一半。神经网络打分器（D）留给 v2。" },
+
+  { id: "D4", group: "space", space: true, title: "格律按什么标准",
+    why: "现在用中华新韵，按现代读音定平仄。语料却是唐诗，两者对不上。",
+    opts: [
+      ["A", "中华新韵（现状）", "数据现成。入声字会判错，“千山鸟飞绝”被判为不合律。"],
+      ["B", "平水韵", "与唐人用韵一致。需要一份可靠的平水韵字表，包括多音字的平仄归属，要找数据源并校对。"],
+      ["C", "两套都跑", "两个独立的搜索空间，算力翻倍。"],
+    ],
+    rec: "B", recWhy: "诗云要找的是唐人五绝的味道，平仄标准应该和语料一致。" },
+
+  { id: "D5", group: "space", space: true, title: "字表与语料范围",
+    why: "字表决定每个位置穷举哪些字，语料决定语言模型的统计。现在用《全唐诗》中通篇五言的诗，共 29.4 万句。",
+    opts: [
+      ["A", "维持：唐诗，取前 4000 字", "覆盖语料 99.1% 的字次。"],
+      ["B", "缩到 3000 字", "树更小、更快，但会丢掉一些冷僻却有味道的字。"],
+      ["C", "语料加入宋诗等", "统计更稳，但风格不再纯是唐诗，原句召回率这把尺子的意义也变了。"],
+    ],
+    rec: "A", recWhy: "5 亿句的量级主要由剪枝决定，缩字表省不了多少。" },
+
+  { id: "D6", group: "space", title: "撞上唐诗原句怎么办",
+    why: "穷举一定会撞上古人原句，比如“白日依山尽”在 v1 里就会进入判别。",
+    opts: [
+      ["A", "照常判别，标为“重新发现”，不进排名", "原句可以当标尺，衡量剪枝召回率和判别器的召回率。"],
+      ["B", "照常判别，也参与排名", "排行榜上会混进很多真唐诗。"],
+      ["C", "搜索时直接剔除", "省一点算力，但失去了标尺。"],
+    ],
+    rec: "A", recWhy: "原句是这个项目唯一现成的“标准答案”，用来衡量最合适。" },
+
+  { id: "D7", group: "collab", title: "大家通过什么协作",
+    why: "认领、提交、汇总都要走一个通道。现在用的是 GitHub Issue。",
+    opts: [
+      ["A", "GitHub Issue（现状）", "有 GitHub 账号就能参与，不用 fork，不用写权限。742 片会产生 700 多个 issue；撞车时 issue 编号小的一方胜出。"],
+      ["B", "Pull Request 提交结果文件", "审查直观，git 历史完整。参与者要 fork，合并几百个 PR 也有成本。"],
+      ["C", "轻量中心服务", "认领是原子操作，不会撞车，体验最好。需要托管和运维，有单点故障。"],
+    ],
+    rec: "A", recWhy: "零运维，v1 的规模用 Issue 够了；瓶颈出现了再换 C。" },
+
+  { id: "D8", group: "collab", title: "怎么信任别人提交的结果",
+    why: "账本和候选是否属于该分片都能复算，但判别分数没法零成本复算。",
+    opts: [
+      ["A", "复算账本，抽查少量分数（现状）", "伪造账本或候选一定会被发现；分数造假只能靠抽查碰上。"],
+      ["B", "汇总端统一复判全部候选", "每片最多 3000 句，全部约 220 万句，T4 上约 4 小时。这样虚报的高分会被全部纠正，只剩“漏报好句”无法发现。"],
+      ["C", "冗余计算", "每片两个人独立跑，结果一致才并入。能防漏报，算力翻倍。"],
+      ["D", "只接受白名单贡献者", "最省事，参与面最窄。"],
+    ],
+    rec: "B", recWhy: "多花约 4 GPU·小时，就能让所有入库的分数都出自同一个判别器。" },
+
+  { id: "D9", group: "later", title: "第二阶段组诗谁来跑",
+    why: "现在由维护者集中跑：每种句式取前 120 句，每联留前 600 对，每种格式取前 300 首送整首判别。",
+    opts: [
+      ["A", "维护者集中跑（现状）", "简单。规模受一台机器限制。"],
+      ["B", "拆成分布式任务", "规模能放大，认领协议要重新设计。"],
+      ["C", "等第一阶段跑完再定", "看到好句池的真实规模再决定。"],
+    ],
+    rec: "C", recWhy: "好句池有多大现在只能猜，等它出来再定，默认先按 A 跑。" },
+
+  { id: "D10", group: "later", title: "人工投票怎么收",
+    why: "投票既用来排名，也是以后微调判别器的数据。",
+    opts: [
+      ["A", "预填的 GitHub issue（现状）", "要有 GitHub 账号，门槛高；但每一票都能追溯，天然防刷。"],
+      ["B", "网页直投加轻量后端", "门槛低，参与的人多。要防刷，要托管。"],
+      ["C", "专家评审团", "少数懂诗的人，票权更高。质量高，量小。"],
+      ["AC", "A 加 C", "公开投票照常收，另设评审团，评审票加权。"],
+    ],
+    rec: "AC", recWhy: "大众票保证量，评审票保证判别器学到的口味靠谱。" },
+];
+
+const KEY = "shiyun-v1-decisions";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function renderFunnel() {
+  const max = 18;
+  const el = document.getElementById("funnel");
+  el.innerHTML = FUNNEL.map(([lab, v, txt]) =>
+    `<div class="frow"><span class="lab">${lab}</span><span class="bar"><i style="width:${(Math.log10(v) / max * 100).toFixed(2)}%"></i></span><span class="val">${txt}</span></div>`
+  ).join("") + `<div class="axis"><span></span><div><span>10⁰</span><span>10⁶</span><span>10¹²</span><span>10¹⁸</span></div><span></span></div>`;
+}
+
+function renderDecisions() {
+  let html = "", last = "";
+  for (const d of D) {
+    if (d.group !== last) { html += `<div class="group-title">${GROUPS[d.group]}</div>`; last = d.group; }
+    const s = state[d.id] || {};
+    html += `<article class="decision" id="${d.id}">
+      <div class="dhead"><span class="did">${d.id}</span><h3>${esc(d.title)}</h3>${d.space ? '<span class="chip space">改变搜索空间</span>' : ""}<span class="chip ${s.choice ? "done" : ""}" data-status="${d.id}">${s.choice ? "已选 " + s.choice : "待定"}</span></div>
+      <p class="why">${esc(d.why)}</p>
+      <div class="opts" role="radiogroup" aria-label="${esc(d.title)}">
+        ${d.opts.map(([k, t, desc]) => `
+          <label class="opt">
+            <input type="radio" name="${d.id}" id="${d.id}-${k}" value="${k}" ${s.choice === k ? "checked" : ""}>
+            <span><span class="otitle"><span class="k">${k}</span>${esc(t)}${d.rec === k ? '<span class="rec">建议</span>' : ""}</span><span class="odesc">${esc(desc)}</span></span>
+          </label>`).join("")}
+      </div>
+      <p class="reco"><b>建议 ${d.rec}</b>　${esc(d.recWhy)}</p>
+      <textarea class="note" id="${d.id}-note" data-note="${d.id}" placeholder="补充说明（可选）">${esc(s.note || "")}</textarea>
+    </article>`;
+  }
+  document.getElementById("decisions").innerHTML = html;
+}
+
+function optTitle(d, k) { const o = d.opts.find(o => o[0] === k); return o ? o[1] : ""; }
+
+function update() {
+  const done = D.filter(d => state[d.id] && state[d.id].choice);
+  document.getElementById("count").textContent = `已决定 ${done.length}/10`;
+  document.getElementById("dots").innerHTML = D.map(d =>
+    `<a href="#${d.id}" class="${state[d.id] && state[d.id].choice ? "on" : ""}" title="${esc(d.title)}">${d.id.slice(1)}</a>`).join("");
+  for (const d of D) {
+    const chip = document.querySelector(`[data-status="${d.id}"]`);
+    const c = state[d.id] && state[d.id].choice;
+    chip.textContent = c ? "已选 " + c : "待定";
+    chip.classList.toggle("done", !!c);
+  }
+  const lines = ["诗云 v1 决策单", ""];
+  const pending = [];
+  for (const d of D) {
+    const s = state[d.id] || {};
+    if (s.choice) {
+      lines.push(`${d.id} ${d.title}：${s.choice}（${optTitle(d, s.choice)}）${s.choice === d.rec ? "" : "　※ 与建议不同"}`);
+    } else {
+      pending.push(d.id);
+    }
+    if (s.note && s.note.trim()) lines.push(`    备注：${s.note.trim().replace(/\n+/g, " ")}`);
+  }
+  if (pending.length) lines.push("", "待定：" + pending.join("、"));
+  document.getElementById("sheet").value = lines.join("\n");
+}
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.type === "radio" && t.name) {
+    state[t.name] = Object.assign({}, state[t.name], { choice: t.value });
+    save(); update();
+  }
+});
+document.addEventListener("input", e => {
+  const id = e.target.dataset && e.target.dataset.note;
+  if (id) { state[id] = Object.assign({}, state[id], { note: e.target.value }); save(); update(); }
+});
+
+document.getElementById("copy").addEventListener("click", async () => {
+  const ta = document.getElementById("sheet");
+  const msg = document.getElementById("copied");
+  try {
+    await navigator.clipboard.writeText(ta.value);
+    msg.textContent = "已复制，粘贴发给我即可。";
+  } catch (e) {
+    ta.focus(); ta.select();
+    msg.textContent = "已全选，按 ⌘C 或 Ctrl+C 复制。";
+  }
+});
+document.getElementById("useRec").addEventListener("click", () => {
+  for (const d of D) {
+    if (!(state[d.id] && state[d.id].choice)) {
+      state[d.id] = Object.assign({}, state[d.id], { choice: d.rec });
+      const r = document.getElementById(`${d.id}-${d.rec}`);
+      if (r) r.checked = true;
+    }
+  }
+  save(); update();
+});
+document.getElementById("reset").addEventListener("click", () => {
+  state = {}; save(); renderDecisions(); update();
+  document.getElementById("copied").textContent = "已清空。";
+});
+
+renderFunnel();
+renderDecisions();
+update();
+</script>
