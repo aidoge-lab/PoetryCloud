@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "github_repo": "aidoge-lab/PoetryCloud",
+  "claim_ttl_days": 7,
+  "search": {
+    "caesura": true,
+    "lambda": 0.9,
+    "lm_floor": [
+      -9.0,
+      -13.2,
+      -17.4,
+      -21.6,
+      -25.8
+    ]
+  },
+  "judge": {
+    "prompt_version": 1,
+    "submit_threshold": 0.5,
+    "max_candidates_per_shard": 3000
+  },
+  "space_sha256": "b7648edd9b117879aaa1f91b586e5f8c3939e5ce362dbe3eb80bcbabee8b41a9",
+  "n_chars": 4000,
+  "n_prefixes": 70605,
+  "n_shards": 742,
+  "n_leaves": 502753881,
+  "global_ledger": {
+    "leaves": 502753881,
+    "pruned": {
+      "lm": [
+        2679,
+        5213395,
+        279925500,
+        9891047491,
+        109862123833
+      ],
+      "dup": [
+        0,
+        0,
+        7542,
+        336422,
+        6959079
+      ],
+      "tone": [
+        0,
+        0,
+        0,
+        28826121,
+        116027207
+      ]
+    }
+  },
+  "known_recall": 0.05
+}

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>诗云 · PoetryCloud</title>
+<style>
+  :root { --bg:#f6f3ec; --fg:#2b2620; --muted:#8a8072; --line:#ddd5c6; --accent:#9c3b2b; --card:#fffdf8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1916; --fg:#ece6da; --muted:#9a9184; --line:#3a352e; --accent:#d9735f; --card:#24211d; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.7 "Songti SC","Noto Serif SC","Source Han Serif SC",serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 96px; }
+  h1 { font-size: 30px; letter-spacing: .3em; margin: 0; }
+  .sub { color: var(--muted); margin: 4px 0 24px; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat { border:1px solid var(--line); background:var(--card); padding: 10px 14px; border-radius: 6px; }
+  .stat b { display:block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .bar i { display:block; height:100%; background: var(--accent); }
+  nav { display:flex; gap: 8px; margin: 24px 0 16px; flex-wrap: wrap; }
+  nav button, .vote button, #submit { font: inherit; border:1px solid var(--line); background: var(--card); color: var(--fg); padding: 4px 14px; border-radius: 4px; cursor: pointer; }
+  nav button.on { border-color: var(--accent); color: var(--accent); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: 14px; }
+  .poem { border:1px solid var(--line); background:var(--card); border-radius: 6px; padding: 18px 18px 12px; }
+  .poem pre { font: 21px/1.9 inherit; font-family: inherit; margin: 0 0 8px; letter-spacing: .12em; white-space: pre-wrap; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .vote { display:flex; gap: 6px; margin-top: 10px; }
+  .vote button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lines { columns: 3 160px; font-size: 18px; letter-spacing: .1em; }
+  .lines div { break-inside: avoid; }
+  .lines small { color: var(--muted); font-size: 11px; letter-spacing: 0; margin-left: 6px; }
+  #dock { position: fixed; left:0; right:0; bottom:0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom,0px)); background: var(--card); border-top:1px solid var(--line); display:flex; justify-content:center; gap: 12px; align-items:center; }
+  #submit { border-color: var(--accent); color: var(--accent); }
+  .empty { color: var(--muted); padding: 40px 0; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>诗云</h1>
+  <p class="sub">逐字穷举五言绝句。机器判别，人来定夺。</p>
+  <div class="stats" id="stats"></div>
+  <nav>
+    <button data-tab="poems" class="on">绝句（投票）</button>
+    <button data-tab="lines">好句池</button>
+  </nav>
+  <section id="poems" class="grid"></section>
+  <section id="lines" class="lines" hidden></section>
+</main>
+<div id="dock" hidden><span id="count"></span><button id="submit">提交到 GitHub</button></div>
+<script>
+const KEY = "shiyun-votes";
+let votes = {};
+try { votes = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(votes)); } catch {} dock(); };
+const fmt = n => n >= 1e6 ? n.toExponential(2) : n.toLocaleString();
+
+fetch("data.json").then(r => r.json()).then(render).catch(() => {
+  document.getElementById("poems").innerHTML = '<p class="empty">还没有数据。运行 <code>python -m shiyun site</code> 生成。</p>';
+});
+
+function render(d) {
+  window.REPO = d.repo;
+  const p = d.progress;
+  if (p) {
+    document.getElementById("stats").innerHTML = `
+      <div class="stat"><b>${p.space}</b><span>全空间（句）</span></div>
+      <div class="stat"><b>${(p.judged_ratio * 100).toFixed(2)}%</b><span>判别进度</span><div class="bar"><i style="width:${p.judged_ratio * 100}%"></i></div></div>
+      <div class="stat"><b>${(p.covered_ratio * 100).toFixed(6)}%</b><span>已穷举（含剪枝）</span></div>
+      <div class="stat"><b>${p.shards_done}/${p.shards_total}</b><span>分片</span></div>
+      <div class="stat"><b>${fmt(p.leaves_judged)}</b><span>已判别句子</span></div>
+      <div class="stat"><b>${fmt(p.candidates)}</b><span>候选好句</span></div>
+      <div class="stat"><b>${p.contributors.length}</b><span>参与者</span></div>`;
+  }
+  const P = document.getElementById("poems");
+  P.innerHTML = d.poems.length ? "" : '<p class="empty">第二阶段还没有组出绝句。</p>';
+  for (const x of d.poems) {
+    const el = document.createElement("div");
+    el.className = "poem";
+    const v = x.votes;
+    el.innerHTML = `<pre>${x.text.split("/").map((l, i) => l + (i % 2 ? "。" : "，")).join("\n")}</pre>
+      <div class="meta">${x.form} · ${x.rhyme}韵 · 机判 ${x.score.toFixed(2)} · 综合 ${x.final.toFixed(2)} · 👍${v["好"]} 😐${v["一般"]} 👎${v["不行"]}${x.known_lines ? " · 含唐人原句" + x.known_lines : ""}</div>
+      <div class="vote">${[[1, "好诗"], [0, "一般"], [-1, "不行"]].map(([k, t]) =>
+        `<button data-id="${x.id}" data-v="${k}" class="${votes[x.id] === k ? "on" : ""}">${t}</button>`).join("")}</div>`;
+    P.appendChild(el);
+  }
+  P.addEventListener("click", e => {
+    const b = e.target.closest("button[data-id]"); if (!b) return;
+    const id = b.dataset.id, v = +b.dataset.v;
+    if (votes[id] === v) delete votes[id]; else votes[id] = v;
+    b.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("on", votes[id] === +x.dataset.v));
+    save();
+  });
+  document.getElementById("lines").innerHTML = d.lines.map(l =>
+    `<div>${l.text}<small>${l.score.toFixed(2)}${l.known ? " 唐" : ""}</small></div>`).join("");
+  dock();
+}
+
+function dock() {
+  const n = Object.keys(votes).length;
+  document.getElementById("dock").hidden = !n;
+  document.getElementById("count").textContent = `已投 ${n} 首`;
+}
+
+document.getElementById("submit").onclick = () => {
+  const body = "由诗云投票页生成，请直接提交。\n\n```json\n" + JSON.stringify({ v: 1, votes }) + "\n```\n";
+  const url = `https://github.com/${window.REPO}/issues/new?title=${encodeURIComponent("[vote] " + Object.keys(votes).length + " 首")}&body=${encodeURIComponent(body)}`;
+  window.open(url, "_blank");
+};
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  document.getElementById("poems").hidden = b.dataset.tab !== "poems";
+  document.getElementById("lines").hidden = b.dataset.tab !== "lines";
+});
+</script>
+</body>
+</html>

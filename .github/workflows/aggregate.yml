@@ -1,0 +1,52 @@
+name: 汇总
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+
+concurrency: aggregate
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 准备标签
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh label create merged   --color 2da44e --force || true
+          gh label create rejected --color cf222e --force || true
+      - name: 校验并汇总结果、收集投票
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python -m shiyun aggregate
+      - name: 生成网页数据
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python -m shiyun site
+      - name: 提交
+        run: |
+          git config user.name "shiyun-bot"
+          git config user.email "shiyun-bot@users.noreply.github.com"
+          git add data site
+          git diff --cached --quiet || git commit -m "汇总：$(date -u +%F' '%H:%M) UTC"
+          git push
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - uses: actions/deploy-pages@v4
+
+  test:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pytest && pytest -q

@@ -1,0 +1,22 @@
+[project]
+name = "shiyun"
+version = "0.1.0"
+description = "诗云 PoetryCloud：逐字穷举五言绝句，分布式计算，开源判别模型筛选，人工投票校准"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = []  # 核心只依赖标准库
+
+[project.optional-dependencies]
+laya = ["laya"]           # 进程内运行 laya 判别器
+build = ["pypinyin", "opencc-python-reimplemented"]  # 仅维护者重建字表时需要
+dev = ["pytest"]
+
+[project.scripts]
+shiyun = "shiyun.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["shiyun*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
